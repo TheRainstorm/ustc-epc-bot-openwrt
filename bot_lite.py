@@ -72,7 +72,7 @@ class Bot():
 
         #尝试直接提交可预约课程
         self.print_log(0, "Trying to book released course...")
-        self.try_submit_course(course_dict_list_sorted)
+        try_count = self.try_submit_course(course_dict_list_sorted)
 
         #获得已预约的学时（总），新预约的学时
         booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
@@ -80,7 +80,7 @@ class Bot():
         self.dump_course_list(self.new_booked_course_json_file, new_booked_course_list)
     
         #邮件通知
-        if self.send_email:
+        if try_count>0 and self.send_email:
             msg = self.list2html(new_booked_course_list)
             msg += self.list2html(course_dict_list_sorted)
             self.email_sender.send("EPC Bookable Course", msg)
@@ -263,14 +263,17 @@ class Bot():
         return False
 
     def try_submit_course(self, course_dict_list):
+        count = 0
         for course_dict in course_dict_list:
             if course_dict['优先级'] != '0':
                 if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
+                    count += 1
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
                         self.print_log(0, "Submit course success: %s" % course_dict['预约单元'])
                     else:
                         self.print_log(1, "Submit course failed: %s" % course_dict['预约单元'])
+        return count
 
     def print_course_list(self, course_dict_list):
         for course_dict in course_dict_list:
