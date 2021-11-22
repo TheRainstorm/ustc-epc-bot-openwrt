@@ -1,6 +1,7 @@
 import requests
 import json
 import re
+import time
 from lxml import etree
 from noftify import EmailSender
 
@@ -16,18 +17,21 @@ class Bot():
         "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
     }
 
-    def __init__(self, config, send_email=False):
+    def __init__(self, config, send_email=False, silent=False):
         self.ustc_id     = config["ustc_id"]
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
-        self.new_booked_course_json_file = 'course_to_cancel.json'
-        self.sorted_released_course_json_file = 'course_to_submit.json'
+
+        self.new_booked_course_json_file = 'course_to_cancel.json'          #保存已预约的课程
+        self.sorted_released_course_json_file = 'course_to_submit.json'     #保存可预约的课程
 
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
                 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.75 Safari/537.36"
         })
+
+        self.silent = silent    #是否静默模式（命令行不输出INFO信息）
 
         self.send_email = send_email
         if send_email:
@@ -48,9 +52,10 @@ class Bot():
         4. 发送邮件通知发布的课程，以及已预约的课程
         '''
         #获得发布的课程列表
+        self.print_log(0, "Getting released course list...")
         course_dict_list = self.get_released_course(select='topic')
         if len(course_dict_list) == 0:
-            print("[Info] No released course, exit")
+            self.print_log(0, "No released course, exit")
             exit(0)
         
         #对课程按照优先级排序
@@ -59,15 +64,17 @@ class Bot():
         self.dump_course_list(self.sorted_released_course_json_file, course_dict_list_sorted)
 
         #打印可预约的课程
-        print("[Info] Bookable course:")
-        self.print_course_list(course_dict_list_sorted)
+        if not self.silent:
+            self.print_log(0, "Released course list:")
+            self.print_course_list(course_dict_list_sorted)
 
         #尝试直接提交可预约课程
+        self.print_log(0, "Trying to book released course...")
         self.try_submit_course(course_dict_list_sorted)
 
         #获得已预约的学时（总），新预约的学时
         booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
-        print("[Info] 已预约学时: %d, 新预约学时: %d" %(booked_hour, new_booked_hour))
+        self.print_log(0, "已预约学时: %d, 新预约学时: %d" %(booked_hour, new_booked_hour))
         self.dump_course_list(self.new_booked_course_json_file, new_booked_course_list)
 
         #邮件通知
@@ -97,11 +104,11 @@ class Bot():
         for course_dict in course_to_cancel:
             success = self.submit_course(course_dict, 'cancel')
             if success:
-                print("[Info] Cancel course: %s" %course_dict['预约单元'])
+                self.print_log(0, "Cancel course: %s" %course_dict['预约单元'])
         for course_dict in course_to_submit:
             success = self.submit_course(course_dict, 'submit')
             if success:
-                print("[Info] Submit course: %s" %course_dict['预约单元'])
+                self.print_log(0, "Submit course: %s" %course_dict['预约单元'])
 
     def login(self):
         '''登录EPC网站
@@ -116,10 +123,10 @@ class Bot():
 
         resp = self.session.post(url=self.URL_LOGIN, data=data)
         if resp.status_code !=200 and "登录失败" in resp.text:
-            print("[Error] Failed to login")
+            self.print_log(1, "Login failed")
             exit(1)
         else:
-            print("[Info] Login Success")
+            self.print_log(0, "Login success")
 
     def get_booked_course(self, select='all'):
         '''打印课程预约记录表
@@ -130,7 +137,7 @@ class Bot():
         
         resp = self.session.post(url=self.URL_BOOKED, data=data)
         if resp.status_code != 200: 
-            print("[Error] Failed to get booked table")
+            self.print_log(1, "Get booked course failed")
             exit(1)
         
         course_dict_list = []
@@ -171,11 +178,15 @@ class Bot():
     def get_released_course(self, select='topic'):
         '''获得可预约课程
         '''
-        resp = self.session.get(self.URL_BOOKABLE[select])
-        if (resp.status_code != 200): 
-            print(resp.status_code)
-            print("Failed to fetch bookable classes of %s." % select)
-            return
+        retry_time = 3
+        while retry_time > 0:
+            resp = self.session.get(self.URL_BOOKABLE[select])
+            if (resp.status_code != 200): 
+                self.print_log(1, "Get released course failed")
+                retry_time -= 1
+            else:
+                break
+            
         # with open("bookable.html", "w", encoding='gbk') as f:
         #     f.write(resp.text)
         
@@ -245,20 +256,21 @@ class Bot():
                 if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
-                        print("Successfully booked %s." % course_dict['预约单元'])
+                        self.print_log(0, "Submit course success: %s" % course_dict['预约单元'])
                     else:
-                        print("Failed to book %s." % course_dict['预约单元'])
+                        self.print_log(1, "Submit course failed: %s" % course_dict['预约单元'])
 
     def print_course_list(self, course_dict_list):
         for course_dict in course_dict_list:
-            print("%-40s %-10s %s %s %s %s %s" % (
+            print("%-30s %-10s %s %s %s %s %s %s" % (
                 course_dict['预约单元'], 
                 course_dict['教师'], 
                 course_dict['上课时间date'],
                 course_dict['上课时间time'],
                 course_dict['教学周'], 
                 course_dict['星期'],
-                course_dict['优先级']
+                course_dict['优先级'],
+                course_dict['operation']
             ))
     
     def dump_course_list(self, file, course_dict_list):
@@ -293,3 +305,15 @@ class Bot():
                 td.text = course_dict[key]
         
         return etree.tostring(table, pretty_print=True, encoding="utf-8").decode("utf-8")
+    
+    def print_log(self, level, msg):
+        t = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        if level == 0:
+            if not self.silent:
+                print("[INFO] %s %s" %(t, msg))
+        elif level == 1:
+            print("[ERROR] %s %s" %(t, msg))
+        elif level == 2:
+            print("[DEBUG] %s %s" %(t, msg))
+        else:
+            print("[UNKNOWN] %s %s" %(t, msg))
