@@ -2,6 +2,8 @@ import requests
 import json
 import re
 import time
+import os
+import sys
 from lxml import etree
 from noftify import EmailSender
 
@@ -22,8 +24,8 @@ class Bot():
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
 
-        self.new_booked_course_json_file = 'course_to_cancel.json'          #保存已预约的课程
-        self.sorted_released_course_json_file = 'course_to_submit.json'     #保存可预约的课程
+        self.new_booked_course_json_file = os.path.join(sys.path[0], 'course_to_cancel.json')          #保存已预约的课程
+        self.sorted_released_course_json_file = os.path.join(sys.path[0], 'course_to_submit.json')     #保存可预约的课程
 
         self.session = requests.Session()
         self.session.headers.update({
@@ -76,7 +78,7 @@ class Bot():
         booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
         self.print_log(0, "已预约学时: %d, 新预约学时: %d" %(booked_hour, new_booked_hour))
         self.dump_course_list(self.new_booked_course_json_file, new_booked_course_list)
-
+    
         #邮件通知
         if self.send_email:
             msg = self.list2html(new_booked_course_list)
