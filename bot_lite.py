@@ -137,9 +137,16 @@ class Bot():
             "querytype": select  #all: 全部预约，new: 新预约
         }
         
-        resp = self.session.post(url=self.URL_BOOKED, data=data)
-        if resp.status_code != 200: 
-            self.print_log(1, "Get booked course failed")
+        retry_time = 3
+        while retry_time > 0:
+            resp = self.session.post(url=self.URL_BOOKED, data=data)
+            if resp.status_code != 200: 
+                self.print_log(1, "Get booked course failed")
+                retry_time -= 1
+            else:
+                break
+        else:
+            self.print_log(1, "Get booked course failed %d times, exit"%(3-retry_time))
             exit(1)
         
         course_dict_list = []
@@ -188,7 +195,10 @@ class Bot():
                 retry_time -= 1
             else:
                 break
-            
+        else:
+            self.print_log(1, "Get released course failed %d times, exit"%(3-retry_time))
+            exit(1) 
+        
         # with open("bookable.html", "w", encoding='gbk') as f:
         #     f.write(resp.text)
         
