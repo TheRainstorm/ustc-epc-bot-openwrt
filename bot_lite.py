@@ -1,0 +1,295 @@
+import requests
+import json
+import re
+from lxml import etree
+from noftify import EmailSender
+
+class Bot():
+    URL_ROOT     = "http://epc.ustc.edu.cn/"
+    URL_LOGIN    = URL_ROOT + "n_left.asp"
+    URL_BOOKED   = URL_ROOT + "record_book.asp"
+    URL_BOOKABLE = {
+        "situational"   : URL_ROOT + "m_practice.asp?second_id=2001",   #Situational Dialogue
+        "topic"       : URL_ROOT + "m_practice.asp?second_id=2002",   #Topical Discussion
+        "debate"        : URL_ROOT + "m_practice.asp?second_id=2003",   #Debate
+        "drama"         : URL_ROOT + "m_practice.asp?second_id=2004",   #Drama
+        "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
+    }
+
+    def __init__(self, config, send_email=False):
+        self.ustc_id     = config["ustc_id"]
+        self.ustc_pwd    = config["ustc_pwd"]
+        self.wday_perfer = config["wday_perfer"]
+        self.new_booked_course_json_file = 'course_to_cancel.json'
+        self.sorted_released_course_json_file = 'course_to_submit.json'
+
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+                AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.75 Safari/537.36"
+        })
+
+        self.send_email = send_email
+        if send_email:
+            self.email_sender = EmailSender(
+                    config['email_addr'],
+                    config['email_auth_code'],
+                    config['email_smtp_addr']
+                )
+        
+        self.login()
+
+    def run(self):
+        '''
+        运行默认策略
+        1. 先获得发布的课程列表
+        2. 按照优先级排序
+        3. 尝试直接预约可预约课程
+        4. 发送邮件通知发布的课程，以及已预约的课程
+        '''
+        #获得发布的课程列表
+        course_dict_list = self.get_released_course(select='topic')
+        if len(course_dict_list) == 0:
+            print("[Info] No released course, exit")
+            exit(0)
+        
+        #对课程按照优先级排序
+        course_dict_list = self.add_priority(course_dict_list)  #为每个course_dict添加优先级属性，方便人工选择
+        course_dict_list_sorted = self.sort_by_priority(course_dict_list)
+        self.dump_course_list(self.sorted_released_course_json_file, course_dict_list_sorted)
+
+        #打印可预约的课程
+        print("[Info] Bookable course:")
+        self.print_course_list(course_dict_list_sorted)
+
+        #尝试直接提交可预约课程
+        self.try_submit_course(course_dict_list_sorted)
+
+        #获得已预约的学时（总），新预约的学时
+        booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
+        print("[Info] 已预约学时: %d, 新预约学时: %d" %(booked_hour, new_booked_hour))
+        self.dump_course_list(self.new_booked_course_json_file, new_booked_course_list)
+
+        #邮件通知
+        if self.send_email:
+            msg = self.list2html(new_booked_course_list)
+            msg += self.list2html(course_dict_list_sorted)
+            self.email_sender.send("EPC Bookable Course", msg)
+
+    def run_manual_strategy(self):
+        '''
+        运行手动策略
+        1. 手动标记需要取消的课程以及预约的课程（在对应的json文件给对应课程添加'mark'键）
+        2. 自动预约和取消
+        '''
+        course_to_cancel = []
+        course_to_submit = []
+        course_dict_list = self.load_course_list(self.new_booked_course_json_file)
+        for course_dict in course_dict_list:
+            if 'mark' in course_dict.keys():
+                course_to_cancel.append(course_dict)
+        
+        course_dict_list = self.load_course_list(self.sorted_released_course_json_file)
+        for course_dict in course_dict_list:
+            if 'mark' in course_dict.keys():
+                course_to_submit.append(course_dict)
+        
+        for course_dict in course_to_cancel:
+            success = self.submit_course(course_dict, 'cancel')
+            if success:
+                print("[Info] Cancel course: %s" %course_dict['预约单元'])
+        for course_dict in course_to_submit:
+            success = self.submit_course(course_dict, 'submit')
+            if success:
+                print("[Info] Submit course: %s" %course_dict['预约单元'])
+
+    def login(self):
+        '''登录EPC网站
+        '''
+        data = {
+            "submit_type": "user_login",
+            "name": self.ustc_id,
+            "pass": self.ustc_pwd,
+            "user_type": "2",
+            "Submit": "LOG IN"
+        }
+
+        resp = self.session.post(url=self.URL_LOGIN, data=data)
+        if resp.status_code !=200 and "登录失败" in resp.text:
+            print("[Error] Failed to login")
+            exit(1)
+        else:
+            print("[Info] Login Success")
+
+    def get_booked_course(self, select='all'):
+        '''打印课程预约记录表
+        '''
+        data = {
+            "querytype": select  #all: 全部预约，new: 新预约
+        }
+        
+        resp = self.session.post(url=self.URL_BOOKED, data=data)
+        if resp.status_code != 200: 
+            print("[Error] Failed to get booked table")
+            exit(1)
+        
+        course_dict_list = []
+
+        html = etree.HTML(resp.text)
+        course_tr_list = html.xpath('//form/tr[@bgcolor="#ffe6ff"]')
+        for course_tr in course_tr_list:
+            course_dict = {}
+            text_list = course_tr.xpath('./td//text()')
+            course_dict['zoom课堂ID与密码'] = text_list[0]
+            course_dict['预约单元'] = text_list[1]
+            course_dict['教师'] = text_list[2]
+            course_dict['学时'] = text_list[3]
+            course_dict['教学周'] = text_list[5]
+            course_dict['星期'] = text_list[6]
+            course_dict['上课时间date'] = text_list[7]
+            course_dict['上课时间time'] = text_list[8]
+            course_dict['课程状态'] = text_list[11].strip()
+
+            #获得取消课程的url
+            course_form = course_tr.getparent()
+            course_dict['_url'] = course_form.get('action')
+
+            course_dict_list.append(course_dict)
+        
+        new_booked_course_list = []
+        for course_dict in course_dict_list:
+            if course_dict['课程状态'] == '预约中':
+                new_booked_course_list.append(course_dict)
+        
+        booked_hour = int(re.search(r'已预约的交流英语学时:(\d+)', resp.text).group(1))
+        finished_hour = int(re.search(r'已获得的交流英语学时:(\d+)', resp.text).group(1))
+        # missed_hour = int(re.search(r'预约未上的交流英语学时:(\d+)', resp.text).group(1))
+        new_booked_hour = booked_hour - finished_hour
+
+        return booked_hour, new_booked_hour, new_booked_course_list, course_dict_list
+
+    def get_released_course(self, select='topic'):
+        '''获得可预约课程
+        '''
+        resp = self.session.get(self.URL_BOOKABLE[select])
+        if (resp.status_code != 200): 
+            print(resp.status_code)
+            print("Failed to fetch bookable classes of %s." % select)
+            return
+        # with open("bookable.html", "w", encoding='gbk') as f:
+        #     f.write(resp.text)
+        
+        html = etree.HTML(resp.text)
+
+        course_dict_list = []
+        course_form_list = html.xpath('//form[@action]')
+        for course_form in course_form_list:
+            course_dict = {}
+            text_list = course_form.xpath('./tr/td//text()')
+            course_dict['预约单元']     = text_list[0]
+            course_dict['教学周']       = text_list[1]
+            course_dict['星期']         = text_list[2]
+            course_dict['教师']         = text_list[3]
+            course_dict['学时']         = text_list[4]
+            course_dict['上课时间date'] = text_list[5]
+            course_dict['上课时间time'] = text_list[6]
+            course_dict['教室']         = text_list[7]
+            course_dict['可预约人数']    = text_list[12]
+            course_dict['已预约人数']    = text_list[13]
+            course_dict['课件']         = course_form.xpath('./tr/td[12]/a/@href')[0] if course_form.xpath('./tr/td[12]/a/@href') else ''
+            course_dict['_url']         = course_form.xpath('./@action')[0]
+
+            operation = course_form.xpath('./tr/td[13]//text()')[1].strip()
+            #如果operation为空，要么可以预约，要么已经预约过了，需要进一步获得<input>的类型
+            input_submit = course_form.xpath('./tr/td[13]/input[@type="submit"]/@value')
+            if not operation:
+                operation = input_submit[0]
+            course_dict['operation'] = operation
+
+            course_dict_list.append(course_dict)
+        return course_dict_list
+    
+    def add_priority(self, course_dict_list):
+        '''添加优先级
+        '''
+        def get_priority(course_dict):  #这个函数完全是copilot生成的, nb!
+            return self.wday_perfer[course_dict['星期']][course_dict['上课时间time']]
+
+        for course_dict in course_dict_list:
+            course_dict['优先级'] = str(get_priority(course_dict))
+        
+        return course_dict_list
+
+    def sort_by_priority(self, course_dict_list):
+        '''根据课程的优先级排序
+        '''
+        course_dict_list_sorted = sorted(course_dict_list, key=lambda x: int(x['优先级']), reverse=True)
+        course_dict_list_sorted_by_week = sorted(course_dict_list_sorted, key=lambda x: x['教学周'])
+        return course_dict_list_sorted_by_week
+    
+    def submit_course(self, course_dict, cmd='submit'):
+        '''提交课程
+        '''
+        data = {
+            "submit_type": "book_%s" % cmd  #book_submit/book_cancel
+        }
+
+        resp = self.session.post(url=self.URL_ROOT + course_dict["_url"], data=data)
+        if (resp.status_code == 200 and "操作失败" not in resp.text):
+            return True
+        return False
+
+    def try_submit_course(self, course_dict_list):
+        for course_dict in course_dict_list:
+            if course_dict['优先级'] != '0':
+                if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
+                    success = self.submit_course(course_dict, cmd='submit')
+                    if success:
+                        print("Successfully booked %s." % course_dict['预约单元'])
+                    else:
+                        print("Failed to book %s." % course_dict['预约单元'])
+
+    def print_course_list(self, course_dict_list):
+        for course_dict in course_dict_list:
+            print("%-40s %-10s %s %s %s %s %s" % (
+                course_dict['预约单元'], 
+                course_dict['教师'], 
+                course_dict['上课时间date'],
+                course_dict['上课时间time'],
+                course_dict['教学周'], 
+                course_dict['星期'],
+                course_dict['优先级']
+            ))
+    
+    def dump_course_list(self, file, course_dict_list):
+        with open(file, 'w', encoding='utf-8') as f:
+            json.dump(course_dict_list, f, ensure_ascii=False, indent=4)
+
+    def load_course_list(self, file):
+        with open(file, 'r', encoding='utf-8') as f:
+            course_dict_list = json.load(f)
+        return course_dict_list
+    
+    def list2html(self, course_dict_list):
+        # 若数组为空, 则返回空字符串
+        if len(course_dict_list) == 0: return ""
+        
+        # 新建表格
+        table = etree.Element('table', cellspacing="0", cellpadding="4px", border="1")
+
+        # 新建表头
+        tr = etree.SubElement(table, 'tr')
+        keys = list(course_dict_list[0].keys())
+        keys.remove("_url")
+        for key in keys:
+            th = etree.SubElement(tr, 'th')
+            th.text = key
+
+        # 循环插入EPC课程列表中的数据
+        for course_dict in course_dict_list:
+            tr = etree.SubElement(table, 'tr')
+            for key in keys:
+                td = etree.SubElement(tr, 'td', align = "center")
+                td.text = course_dict[key]
+        
+        return etree.tostring(table, pretty_print=True, encoding="utf-8").decode("utf-8")

@@ -1,0 +1,7 @@
+*.json
+!config-tamplate.json
+__pycache__
+
+*.html
+test.py
+tmp
