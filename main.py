@@ -11,5 +11,5 @@ if __name__ == "__main__":
     with open(config_file, encoding='utf-8') as fp:
         config = json.load(fp)
 
-    bot = Bot(config, send_email=True, silent=False)
+    bot = Bot(config, have_email=True, silent=False, force_send_email=True)
     bot.run()

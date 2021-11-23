@@ -19,7 +19,7 @@ class Bot():
         "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
     }
 
-    def __init__(self, config, send_email=False, silent=False):
+    def __init__(self, config, have_email=True, silent=False, force_send_email=False):
         self.ustc_id     = config["ustc_id"]
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
@@ -35,8 +35,9 @@ class Bot():
 
         self.silent = silent    #是否静默模式（命令行不输出INFO信息）
 
-        self.send_email = send_email
-        if send_email:
+        self.have_email = have_email                #表示是否设置了邮件（地址，授权码等），未设置时邮件相关代码不执行
+        self.force_send_email = force_send_email    #自动模式有课可选时才会发邮件，该选项用于强制发送邮件
+        if self.have_email:
             self.email_sender = EmailSender(
                     config['email_addr'],
                     config['email_auth_code'],
@@ -80,7 +81,7 @@ class Bot():
         self.dump_course_list(self.new_booked_course_json_file, new_booked_course_list)
     
         #邮件通知
-        if try_count>0 and self.send_email:
+        if self.have_email and (try_count>0 or self.force_send_email):
             msg = self.list2html(new_booked_course_list)
             msg += self.list2html(course_dict_list_sorted)
             self.email_sender.send("EPC Bookable Course", msg)
