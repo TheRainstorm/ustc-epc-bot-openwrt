@@ -2,6 +2,8 @@
 
 本项目基于[Arsennnic/ustc-epc-bot: 中国科学技术大学EPC课程自动预约/优化脚本 (github.com)](https://github.com/Arsennnic/ustc-epc-bot)修改而来。
 
+本项目针对的是openwrt、树莓派等嵌入式平台（当然也可以运行在PC上），主要交互逻辑是命令行。
+
 主要不同：
 
 1. 删除UI界面，纯命令行：使之能运行在openwrt等平台
@@ -10,7 +12,22 @@
    - 自动模式，配置文件可以设置不同时间段的优先级
    - 手动替换课程模式，以达到更准确的控制
 
+### 依赖
+
+python 依赖的库如下：
+
+```
+requests
+lxml
+```
+
 ### 使用说明
+
+0. 安装依赖
+
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 1. 将`config-tamplate.json`复制为`config.json`，并填写相关字段
 
@@ -20,14 +37,14 @@
    2. `email_addr`：邮箱地址
    3. `email_smtp_addr`：邮箱smtp地址，如qq邮箱为smtp.qq.com
    4. `email_auth_code`：授权码，参考QQ邮箱说明[什么是授权码，它又是如何设置？_QQ邮箱帮助中心](https://service.mail.qq.com/cgi-bin/help?subtype=1&&id=28&&no=1001256)
-   5. `wday_perfer`：每一时间段的选择优先级，5为最高，**0表示不能选该时间段**
+   5. `wday_perfer`：每一时间段的选择优先级，5为最高，**0表示不能选该时间段**。自动选课模式下，会优先选择周数小的，相同时再根据此处的优先级进行选择。
 
 3. 如果不使用邮箱
 
-   在main.py中设置send_email为False
+   在main.py中设置have_email为False，即
 
    ```python
-   bot = Bot(config, send_email=False)
+   bot = Bot(config, have_email=False, silent=False, force_send_email=False)
    ```
 
 4. 运行
@@ -48,9 +65,9 @@
    python main_manual.py
    ```
 
-   1. 运行main.py后，会生成`course_to_cancel.json`和`course_to_submit.json`。
+   1. 首先按照方式一运行main.py，会生成`course_to_cancel.json`和`course_to_submit.json`。
 
-   2. 在需要取消/选择的课上添加`"mark"`作为key。
+   2. 然后在需要取消/选择的课上添加`"mark"`作为key。
 
        如在`course_to_cancel.json`中进行标记：
        
@@ -89,7 +106,7 @@
        
        其中"mark"对应的值随意。
        
-       之后运行`main_manual.py`便会退掉该节课
+       之后运行`main_manual.py`便会退掉该节课。在`course_to_submit.json`中标记，则会尝试选择该节课。
 
 ### TODO
 
