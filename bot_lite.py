@@ -39,9 +39,10 @@ class Bot():
         self.force_send_email = force_send_email    #自动模式有课可选时才会发邮件，该选项用于强制发送邮件
         if self.have_email:
             self.email_sender = EmailSender(
-                    config['email_addr'],
-                    config['email_auth_code'],
-                    config['email_smtp_addr']
+                    config['email_rcv_addr'],
+                    config['email_send_addr'],
+                    config['email_smtp_addr'],
+                    config['email_auth_code']
                 )
         
         self.login()

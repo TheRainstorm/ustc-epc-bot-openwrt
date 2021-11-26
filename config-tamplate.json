@@ -2,9 +2,10 @@
     "ustc_id": "",
     "ustc_pwd": "",
 
-    "email_addr": "xxx@qq.com",
-    "email_smtp_addr": "smtp.qq.com",
-    "email_auth_code": "",
+    "email_rcv_addr": "xxx@qq.com",
+    "email_send_addr": "xxx@126.com",
+    "email_smtp_addr": "smtp.126.com",
+    "email_auth_code": "xxx",
 
     "wday_perfer": {
         "周一": {
