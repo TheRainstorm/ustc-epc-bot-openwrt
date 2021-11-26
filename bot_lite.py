@@ -282,16 +282,18 @@ class Bot():
         min_week_idx = 0        #记录最小周数课程的index
         min_week = int(course_dict_list[min_week_idx]['教学周'][1:-1])
         for idx, course_dict in enumerate(course_dict_list):
-            if course_dict['优先级'] != '0':
-                course_week = int(course_dict['教学周'][1:-1])
-                if course_week < min_week:
-                    min_week_idx = idx
-                elif course_week == min_week:   #如果周数相同，则选择优先级高的
-                    if course_dict['优先级'] > course_dict_list[min_week_idx]['优先级']:
+            if course_dict['优先级'] != '0':    #跳过优先级为0的课程
+                #比较周数，找出最小周数的课程
+                if course_dict['operation'] != '取 消':     #跳过已经选择的课程
+                    course_week = int(course_dict['教学周'][1:-1])
+                    if course_week < min_week:
                         min_week_idx = idx
+                    elif course_week == min_week:   #如果周数相同，则选择优先级高的
+                        if course_dict['优先级'] > course_dict_list[min_week_idx]['优先级']:
+                            min_week_idx = idx
                 
                 # if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
-                if '预 约' == course_dict['operation']:
+                if '预 约' == course_dict['operation']:     #尝试预约可选课程
                     try_count += 1
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
@@ -306,6 +308,7 @@ class Bot():
                 try_count += 1
                 self.print_log(2, "Found better course than booked course")
 
+                #可能出现退课成功，但是预约失败的情况，太过危险，因此注释掉。改为发送邮件让用户手动操作
                 # course_dict = new_booked_course_list[0]
                 # success = self.submit_course(course_dict, cmd='cancel')
                 # if success:
