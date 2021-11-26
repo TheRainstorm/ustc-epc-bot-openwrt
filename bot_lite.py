@@ -54,6 +54,11 @@ class Bot():
         3. 尝试直接预约可预约课程
         4. 发送邮件通知发布的课程，以及已预约的课程
         '''
+        #查看已选课程，new_booked表示预约了没上的课程
+        self.print_log(0, "Getting booked course list...")
+        booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
+        self.print_log(0, "已预约学时: %d, 新预约学时: %d" %(booked_hour, new_booked_hour))
+
         #获得发布的课程列表
         self.print_log(0, "Getting released course list...")
         course_dict_list = self.get_released_course(select='topic')
@@ -62,18 +67,20 @@ class Bot():
             exit(0)
         
         #对课程按照优先级排序
+        self.print_log(0, "Sorting course...")
         course_dict_list = self.add_priority(course_dict_list)  #为每个course_dict添加优先级属性，方便人工选择
         course_dict_list_sorted = self.sort_by_priority(course_dict_list)
         self.dump_course_list(self.sorted_released_course_json_file, course_dict_list_sorted)
 
         #打印可预约的课程
-        if not self.silent:
-            self.print_log(0, "Released course list:")
-            self.print_course_list(course_dict_list_sorted)
+        self.print_log(0, "Released course list:")
+        self.print_course_list(course_dict_list_sorted)
 
         #尝试直接提交可预约课程
         self.print_log(0, "Trying to book released course...")
-        try_count = self.try_submit_course(course_dict_list_sorted)
+        try_count = self.try_submit_course(course_dict_list_sorted, new_booked_course_list)
+        if try_count==0:
+            self.print_log(0, "No released course can be booked")
 
         #获得已预约的学时（总），新预约的学时
         booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
@@ -107,11 +114,15 @@ class Bot():
         for course_dict in course_to_cancel:
             success = self.submit_course(course_dict, 'cancel')
             if success:
-                self.print_log(0, "Cancel course: %s" %course_dict['预约单元'])
+                self.print_log(2, "Cancel course: %s success" %course_dict['预约单元'])
+            else:
+                self.print_log(2, "Cancel course: %s failed" %course_dict['预约单元'])
         for course_dict in course_to_submit:
             success = self.submit_course(course_dict, 'submit')
             if success:
-                self.print_log(0, "Submit course: %s" %course_dict['预约单元'])
+                self.print_log(2, "Submit course: %s success" %course_dict['预约单元'])
+            else:
+                self.print_log(2, "Submit course: %s failed" %course_dict['预约单元'])
 
     def login(self):
         '''登录EPC网站
@@ -237,7 +248,10 @@ class Bot():
         '''添加优先级
         '''
         def get_priority(course_dict):  #这个函数完全是copilot生成的, nb!
-            return self.wday_perfer[course_dict['星期']][course_dict['上课时间time']]
+            try:
+                return self.wday_perfer[course_dict['星期']][course_dict['上课时间time']]
+            except: #对于非标准时间的课程，一般为东区课程，优先级设为0，只能手动选择这类课程
+                return 0
 
         for course_dict in course_dict_list:
             course_dict['优先级'] = str(get_priority(course_dict))
@@ -263,20 +277,53 @@ class Bot():
             return True
         return False
 
-    def try_submit_course(self, course_dict_list):
-        count = 0
-        for course_dict in course_dict_list:
+    def try_submit_course(self, course_dict_list, new_booked_course_list):
+        try_count = 0
+        min_week_idx = 0        #记录最小周数课程的index
+        min_week = int(course_dict_list[min_week_idx]['教学周'][1:-1])
+        for idx, course_dict in enumerate(course_dict_list):
             if course_dict['优先级'] != '0':
-                if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
-                    count += 1
+                course_week = int(course_dict['教学周'][1:-1])
+                if course_week < min_week:
+                    min_week_idx = idx
+                elif course_week == min_week:   #如果周数相同，则选择优先级高的
+                    if course_dict['优先级'] > course_dict_list[min_week_idx]['优先级']:
+                        min_week_idx = idx
+                
+                # if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
+                if '预 约' == course_dict['operation']:
+                    try_count += 1
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
-                        self.print_log(0, "Submit course success: %s" % course_dict['预约单元'])
+                        self.print_log(2, "Submit course success: %s" % course_dict['预约单元'])
                     else:
-                        self.print_log(1, "Submit course failed: %s" % course_dict['预约单元'])
-        return count
+                        self.print_log(2, "Submit course failed: %s" % course_dict['预约单元'])
+        
+        if new_booked_course_list:
+            new_booked_course_list.sort(key=lambda course: course['教学周'], reverse=True)
+            max_week = int(new_booked_course_list[0]['教学周'])
+            if min_week < max_week: #尝试退掉已选的课程，并选择周数小的课程
+                try_count += 1
+                self.print_log(2, "Found better course than booked course")
+
+                # course_dict = new_booked_course_list[0]
+                # success = self.submit_course(course_dict, cmd='cancel')
+                # if success:
+                #     self.print_log(2, "Cancel course: %s success" %course_dict['预约单元'])
+                # else:
+                #     self.print_log(2, "Cancel course: %s failed" %course_dict['预约单元'])
+
+                # course_dict = course_dict_list[min_week_idx]
+                # success = self.submit_course(course_dict, 'submit')
+                # if success:
+                #     self.print_log(2, "Submit course: %s success" %course_dict['预约单元'])
+                # else:
+                #     self.print_log(2, "Submit course: %s failed" %course_dict['预约单元'])
+        return try_count
 
     def print_course_list(self, course_dict_list):
+        if self.silent:
+            return
         for course_dict in course_dict_list:
             print("%-30s %-10s %s %s %s %s %s %s" % (
                 course_dict['预约单元'], 
@@ -330,6 +377,6 @@ class Bot():
         elif level == 1:
             print("[ERROR] %s %s" %(t, msg))
         elif level == 2:
-            print("[DEBUG] %s %s" %(t, msg))
+            print("[IMPORTANT] %s %s" %(t, msg))
         else:
             print("[UNKNOWN] %s %s" %(t, msg))
