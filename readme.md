@@ -34,9 +34,10 @@ lxml
 2. 字段说明
 
    1. `ustc_id`, `ustc_pwd`：epc网站用户名和密码
-   2. `email_addr`：邮箱地址
-   3. `email_smtp_addr`：邮箱smtp地址，如qq邮箱为smtp.qq.com
-   4. `email_auth_code`：授权码，参考QQ邮箱说明[什么是授权码，它又是如何设置？_QQ邮箱帮助中心](https://service.mail.qq.com/cgi-bin/help?subtype=1&&id=28&&no=1001256)
+   2. `email_rcv_addr`：接收邮箱地址。保证在该邮箱收到邮件时，手机等设备能第一时间推送。可以和发送邮箱地址相同。
+   2. `email_send_addr`：发送邮箱地址。用来发送邮件的邮件地址，需要开启IMAP/SMTP服务，并获得授权码（参考QQ邮箱说明[什么是授权码，它又是如何设置？_QQ邮箱帮助中心](https://service.mail.qq.com/cgi-bin/help?subtype=1&&id=28&&no=1001256)）。可以使用一些不重要的邮箱。
+   3. `email_smtp_addr`：发送邮箱smtp服务器地址
+   4. `email_auth_code`：授权码
    5. `wday_perfer`：每一时间段的选择优先级，5为最高，**0表示不能选该时间段**。自动选课模式下，会优先选择周数小的，相同时再根据此处的优先级进行选择。
 
 3. 如果不使用邮箱
@@ -47,7 +48,7 @@ lxml
    bot = Bot(config, have_email=False, silent=False, force_send_email=False)
    ```
 
-4. 运行
+4. **运行**
 
    方式一：
 
@@ -55,12 +56,14 @@ lxml
    python main.py
    ```
 
-   该方式会获得发布的课程，并尝试选择优先级高的课程
+   该方式会获得发布的课程，并自动尝试选择优先级高的课程
+
+   当有更好的课程时，会发送邮件通知
 
    缺点：当课程冲突，预约时间已满时，无法自动退课，然后选择更好的课程（比如周数更短）
 
    方式二：
-
+   
    ```bash
    python main_manual.py
    ```
@@ -68,7 +71,7 @@ lxml
    1. 首先按照方式一运行main.py，会生成`course_to_cancel.json`和`course_to_submit.json`。
 
    2. 然后在需要取消/选择的课上添加`"mark"`作为key。
-
+   
        如在`course_to_cancel.json`中进行标记：
        
        ```json
@@ -85,7 +88,7 @@ lxml
                "_url": "xxxx"
            },
        ```
-
+   
        修改为：
        
        ```json
@@ -104,12 +107,12 @@ lxml
            },
        ```
        
-       其中"mark"对应的值随意。
+       其中"mark"对应的值随意。类似的，在`course_to_submit.json`中标记。之后运行`main_manual.py`便会按照顺序依次退掉标记的课程，以及选择标记的课程。
        
-       之后运行`main_manual.py`便会退掉该节课。在`course_to_submit.json`中标记，则会尝试选择该节课。
 
 ### TODO
 
-1. 添加检测课程变动逻辑，使其仅当有课程变动时才发送邮件通知（为了令其作为一个服务运行在openwrt上）
-2. 添加异常处理逻辑，例如目前如果获得发布课程的请求超时失败，目前会直接退出，如何添加一些错误重试逻辑
+1. ~~添加检测课程变动逻辑，使其仅当有课程变动时才发送邮件通知（为了令其作为一个服务运行在openwrt上）~~
+2. ~~添加异常处理逻辑，例如目前如果获得发布课程的请求超时失败，目前会直接退出，如何添加一些错误重试逻辑~~
 3. 增加多线程操作（其实不是很重要，能自动在发布课程时选到课程即可，不需要那么快）
+
