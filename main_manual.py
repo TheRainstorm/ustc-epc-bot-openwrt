@@ -11,6 +11,6 @@ if __name__ == "__main__":
     with open(config_file, encoding='utf-8') as fp:
         config = json.load(fp)
 
-    bot = Bot(config, have_email=False)
+    bot = Bot(config)
     bot.run_manual_strategy()
     

@@ -19,10 +19,15 @@ class Bot():
         "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
     }
 
-    def __init__(self, config, have_email=True, silent=False, force_send_email=False):
+    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False):
         self.ustc_id     = config["ustc_id"]
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
+
+        if filter_week is None:    #如果没有指定星期，则默认为全部星期
+            self.filter_week = [i for i in range(1,21)]
+        else:
+            self.filter_week = filter_week
 
         self.new_booked_course_json_file = os.path.join(sys.path[0], 'course_to_cancel.json')          #保存已预约的课程
         self.sorted_released_course_json_file = os.path.join(sys.path[0], 'course_to_submit.json')     #保存可预约的课程
@@ -75,7 +80,7 @@ class Bot():
 
         #打印可预约的课程
         self.print_log(0, "Released course list:")
-        self.print_course_list(course_dict_list_sorted)
+        self.print_released_course_list(course_dict_list_sorted)
 
         #尝试直接提交可预约课程
         self.print_log(0, "Trying to book released course...")
@@ -280,21 +285,10 @@ class Bot():
 
     def try_submit_course(self, course_dict_list, new_booked_course_list):
         try_count = 0
-        min_week_idx = 0        #记录最小周数课程的index
-        min_week = int(course_dict_list[min_week_idx]['教学周'][1:-1])
-        for idx, course_dict in enumerate(course_dict_list):
+        for course_dict in course_dict_list:
             if course_dict['优先级'] != '0':    #跳过优先级为0的课程
-                #比较周数，找出最小周数的课程
-                if course_dict['operation'] != '取 消':     #跳过已经选择的课程
-                    course_week = int(course_dict['教学周'][1:-1])
-                    if course_week < min_week:
-                        min_week_idx = idx
-                    elif course_week == min_week:   #如果周数相同，则选择优先级高的
-                        if course_dict['优先级'] > course_dict_list[min_week_idx]['优先级']:
-                            min_week_idx = idx
-                
-                # if '已' not in course_dict['operation'] and '未' not in course_dict['operation'] and '取' not in course_dict['operation']: #已达预约上限/您已经预约过该时间段的课程/已选择过该教师与话题相同的课程，不能重复选择/预约时间未到
-                if '预 约' == course_dict['operation']:     #尝试预约可选课程
+                course_week = int(course_dict['教学周'][1:-1])
+                if '预 约' == course_dict['operation'] and course_week in self.filter_week:     #尝试预约可选课程
                     try_count += 1
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
@@ -303,33 +297,45 @@ class Bot():
                         self.print_log(2, "Submit course failed: %s" % course_dict['预约单元'])
         
         if new_booked_course_list:
+            #找到可选课程里周数最小，优先级更高的课程。因为已经排序，故只需看第一个
+            for course_dict in course_dict_list:
+                if course_dict['优先级'] != '0':
+                    min_week = int(course_dict['教学周'][1:-1])
+                    min_week_course = course_dict
+                    break
+            if not min_week_course:
+                return try_count
+            
+            #找到已经预约的课程里周数最大的课程
             new_booked_course_list.sort(key=lambda course: course['教学周'], reverse=True)
             max_week = int(new_booked_course_list[0]['教学周'])
+            max_week_course = new_booked_course_list[0]
+
             if min_week < max_week: #尝试退掉已选的课程，并选择周数小的课程
                 try_count += 1
                 self.print_log(2, "Found better course than booked course")
 
-                #可能出现退课成功，但是预约失败的情况，太过危险，因此注释掉。改为发送邮件让用户手动操作
-                # course_dict = new_booked_course_list[0]
-                # success = self.submit_course(course_dict, cmd='cancel')
-                # if success:
-                #     self.print_log(2, "Cancel course: %s success" %course_dict['预约单元'])
-                # else:
-                #     self.print_log(2, "Cancel course: %s failed" %course_dict['预约单元'])
+                course_dict = max_week_course
+                success = self.submit_course(course_dict, cmd='cancel')
+                if success:
+                    self.print_log(2, "Cancel course: %s success" %course_dict['预约单元'])
+                else:
+                    self.print_log(2, "Cancel course: %s failed" %course_dict['预约单元'])
 
-                # course_dict = course_dict_list[min_week_idx]
-                # success = self.submit_course(course_dict, 'submit')
-                # if success:
-                #     self.print_log(2, "Submit course: %s success" %course_dict['预约单元'])
-                # else:
-                #     self.print_log(2, "Submit course: %s failed" %course_dict['预约单元'])
+                course_dict = min_week_course
+                success = self.submit_course(course_dict, 'submit')
+                if success:
+                    self.print_log(2, "Submit course: %s success" %course_dict['预约单元'])
+                else:
+                    self.print_log(2, "Submit course: %s failed" %course_dict['预约单元'])
+        
         return try_count
 
-    def print_course_list(self, course_dict_list):
+    def print_released_course_list(self, course_dict_list):
         if self.silent:
             return
         for course_dict in course_dict_list:
-            print("%-30s %-10s %s %s %s %s %s %s" % (
+            print("%-30s %-10s %s %s %s %s %s %s %s/%s" % (
                 course_dict['预约单元'], 
                 course_dict['教师'], 
                 course_dict['上课时间date'],
@@ -337,7 +343,9 @@ class Bot():
                 course_dict['教学周'], 
                 course_dict['星期'],
                 course_dict['优先级'],
-                course_dict['operation']
+                course_dict['operation'],
+                course_dict['已预约人数'],
+                course_dict['可预约人数']
             ))
     
     def dump_course_list(self, file, course_dict_list):
