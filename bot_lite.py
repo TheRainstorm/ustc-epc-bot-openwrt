@@ -260,7 +260,10 @@ class Bot():
                 return 0
 
         for course_dict in course_dict_list:
-            course_dict['优先级'] = str(get_priority(course_dict))
+            if int(course_dict['学时'])!=2:
+                course_dict['优先级'] = 0 #对于非2学分的课程，一般为东区课程，优先级设为0，只能手动选择这类课程
+            else:
+                course_dict['优先级'] = str(get_priority(course_dict))
         
         return course_dict_list
 

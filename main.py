@@ -12,5 +12,5 @@ if __name__ == "__main__":
         config = json.load(fp)
 
     filter_week = [13, 14]
-    bot = Bot(config, filter_week=filter_week, have_email=True, force_send_email=True)
+    bot = Bot(config, filter_week=filter_week, have_email=True, force_send_email=False)
     bot.run()
