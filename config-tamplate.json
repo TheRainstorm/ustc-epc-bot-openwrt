@@ -7,6 +7,8 @@
     "email_smtp_addr": "smtp.126.com",
     "email_auth_code": "xxx",
 
+    "no_offline_course": true,
+    
     "wday_perfer": {
         "周一": {
             "08:00-09:30": 1,

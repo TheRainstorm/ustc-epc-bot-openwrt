@@ -24,7 +24,10 @@ class Bot():
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
 
-        self.no_offline_course = config["no_offline_course"]
+        try:
+            self.no_offline_course = config["no_offline_course"]
+        except:
+            self.no_offline_course = True
 
         if filter_week is None:    #如果没有指定星期，则默认为全部星期
             self.filter_week = [i for i in range(1,21)]
