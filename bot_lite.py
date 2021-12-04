@@ -24,6 +24,8 @@ class Bot():
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
 
+        self.no_offline_course = config["no_offline_course"]
+
         if filter_week is None:    #如果没有指定星期，则默认为全部星期
             self.filter_week = [i for i in range(1,21)]
         else:
@@ -261,18 +263,37 @@ class Bot():
     def add_priority(self, course_dict_list):
         '''添加优先级
         '''
-        def get_priority(course_dict):  #这个函数完全是copilot生成的, nb!
-            try:
-                return self.wday_perfer[course_dict['星期']][course_dict['上课时间time']]
-            except: #对于非标准时间的课程，一般为东区课程，优先级设为0，只能手动选择这类课程
-                return 0
+        def get_nearest_time(time_str):
+            def get_middle_time(s):
+                #"08:00-09:30"
+                def clock_to_int(clock):
+                    h, m = clock.split(':')
+                    return int(h) * 60 + int(m)
+                t1, t2 = s.split('-')
+                return (clock_to_int(t1) + clock_to_int(t2))//2
+            
+            std_time = ["08:00-09:30","10:00-11:30","14:00-15:30","16:00-17:30","19:00-20:30"]
+            if time_str in std_time:
+                return time_str
+            
+            time_boundary = [570, 840, 930, 1140] #["9:30", "14:00", "15:30", "19:00"]
+
+            t_middle = get_middle_time(time_str)
+            idx = 0
+            for bound in time_boundary:
+                if t_middle < bound:
+                    break
+                idx += 1
+            return std_time[idx]
 
         for course_dict in course_dict_list:
-            if int(course_dict['学时'])!=2:
-                course_dict['优先级'] = 0 #对于非2学分的课程，一般为东区课程，优先级设为0，只能手动选择这类课程
-            else:
-                course_dict['优先级'] = str(get_priority(course_dict))
-        
+            if self.no_offline_course:
+                if '东区' in course_dict['预约单元'] or '西区' in course_dict['预约单元']:
+                    course_dict['优先级'] = '0'
+                    continue
+            course_time = get_nearest_time(course_dict['上课时间time']) #标准化的时间
+            priority_int = self.wday_perfer[course_dict['星期']][course_time]
+            course_dict['优先级'] = str(priority_int)
         return course_dict_list
 
     def sort_by_priority(self, course_dict_list):

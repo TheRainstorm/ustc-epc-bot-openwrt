@@ -11,6 +11,5 @@ if __name__ == "__main__":
     with open(config_file, encoding='utf-8') as fp:
         config = json.load(fp)
 
-    filter_week = [13, 14]
-    bot = Bot(config, filter_week=filter_week, have_email=True, force_send_email=False)
+    bot = Bot(config, have_email=True, force_send_email=False)
     bot.run()
