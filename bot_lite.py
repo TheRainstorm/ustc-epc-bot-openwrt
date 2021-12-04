@@ -29,6 +29,9 @@ class Bot():
         else:
             self.filter_week = filter_week
 
+        self.booked_score = 0
+        self.max_book_score = 8
+
         self.new_booked_course_json_file = os.path.join(sys.path[0], 'course_to_cancel.json')          #保存已预约的课程
         self.sorted_released_course_json_file = os.path.join(sys.path[0], 'course_to_submit.json')     #保存可预约的课程
 
@@ -64,6 +67,8 @@ class Bot():
         self.print_log(0, "Getting booked course list...")
         booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
         self.print_log(0, "已预约学时: %d, 新预约学时: %d" %(booked_hour, new_booked_hour))
+        self.dump_course_list(self.new_booked_course_json_file, new_booked_course_list)
+        self.booked_score = new_booked_hour
 
         #获得发布的课程列表
         self.print_log(0, "Getting released course list...")
@@ -86,7 +91,7 @@ class Bot():
         self.print_log(0, "Trying to book released course...")
         try_count = self.try_submit_course(course_dict_list_sorted, new_booked_course_list)
         if try_count==0:
-            self.print_log(0, "No released course can be booked")
+            self.print_log(2, "No released course can be booked")
 
         #获得已预约的学时（总），新预约的学时
         booked_hour, new_booked_hour, new_booked_course_list, _ = self.get_booked_course()
@@ -95,6 +100,7 @@ class Bot():
     
         #邮件通知
         if self.have_email and (try_count>0 or self.force_send_email):
+            self.print_log(2, "Sending Email...")
             msg = self.list2html(new_booked_course_list)
             msg += self.list2html(course_dict_list_sorted)
             self.email_sender.send("EPC Bookable Course", msg)
@@ -167,6 +173,8 @@ class Bot():
             self.print_log(1, "Get booked course failed %d times, exit"%(3-retry_time))
             exit(1)
         
+        # with open("booked.html", "w", encoding='gbk') as f:
+        #     f.write(resp.text)
         course_dict_list = []
 
         html = etree.HTML(resp.text)
@@ -289,17 +297,20 @@ class Bot():
     def try_submit_course(self, course_dict_list, new_booked_course_list):
         try_count = 0
         for course_dict in course_dict_list:
+            if self.booked_score >= self.max_book_score:
+                break
             if course_dict['优先级'] != '0':    #跳过优先级为0的课程
                 course_week = int(course_dict['教学周'][1:-1])
                 if '预 约' == course_dict['operation'] and course_week in self.filter_week:     #尝试预约可选课程
                     try_count += 1
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
+                        self.booked_score += int(course_dict['学时'])
                         self.print_log(2, "Submit course success: %s" % course_dict['预约单元'])
                     else:
                         self.print_log(2, "Submit course failed: %s" % course_dict['预约单元'])
         
-        if new_booked_course_list:
+        if new_booked_course_list and (self.booked_score >= self.max_book_score):
             #找到可选课程里周数最小，优先级更高的课程。因为已经排序，故只需看第一个
             for course_dict in course_dict_list:
                 if course_dict['优先级'] != '0':
@@ -380,7 +391,10 @@ class Bot():
             tr = etree.SubElement(table, 'tr')
             for key in keys:
                 td = etree.SubElement(tr, 'td', align = "center")
-                td.text = course_dict[key]
+                try:
+                    td.text = course_dict[key]
+                except:
+                    td.text = str(course_dict[key])
         
         return etree.tostring(table, pretty_print=True, encoding="utf-8").decode("utf-8")
     
