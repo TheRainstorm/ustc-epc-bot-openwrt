@@ -186,16 +186,15 @@ class Bot():
         course_tr_list = html.xpath('//form/tr[@bgcolor="#ffe6ff"]')
         for course_tr in course_tr_list:
             course_dict = {}
-            text_list = course_tr.xpath('./td//text()')
-            course_dict['zoom课堂ID与密码'] = text_list[0]
-            course_dict['预约单元'] = text_list[1]
-            course_dict['教师'] = text_list[2]
-            course_dict['学时'] = text_list[3]
-            course_dict['教学周'] = text_list[5]
-            course_dict['星期'] = text_list[6]
-            course_dict['上课时间date'] = text_list[7]
-            course_dict['上课时间time'] = text_list[8]
-            course_dict['课程状态'] = text_list[11].strip()
+            course_dict['zoom课堂ID与密码'] = course_tr[0].text if course_tr[0].text else ''
+            course_dict['预约单元']         = course_tr[1][0].text
+            course_dict['教师']             = course_tr[2].text
+            course_dict['学时']             = course_tr[3].text
+            course_dict['教学周']           = course_tr[5].text
+            course_dict['星期']             = course_tr[6].text
+            course_dict['上课时间date']     = course_tr[7].text
+            course_dict['上课时间time']     = course_tr[7][0].tail
+            course_dict['课程状态']         = course_tr[10].text.strip()
 
             #获得取消课程的url
             course_form = course_tr.getparent()
@@ -238,28 +237,31 @@ class Bot():
         course_dict_list = []
         course_form_list = html.xpath('//form[@action]')
         for course_form in course_form_list:
+            course_tr = course_form[0]
             course_dict = {}
-            text_list = course_form.xpath('./tr/td//text()')
-            course_dict['预约单元']     = text_list[0]
-            course_dict['教学周']       = text_list[1]
-            course_dict['星期']         = text_list[2]
-            course_dict['教师']         = text_list[3]
-            course_dict['学时']         = text_list[4]
-            course_dict['上课时间date'] = text_list[5]
-            course_dict['上课时间time'] = text_list[6]
-            course_dict['教室']         = text_list[7]
-            course_dict['可预约人数']    = text_list[12]
-            course_dict['已预约人数']    = text_list[13]
-            course_dict['课件']         = course_form.xpath('./tr/td[12]/a/@href')[0] if course_form.xpath('./tr/td[12]/a/@href') else ''
-            course_dict['_url']         = course_form.xpath('./@action')[0]
+            course_dict['预约单元']     = course_tr[0].text
+            course_dict['教学周']       = course_tr[1].text
+            course_dict['星期']         = course_tr[2].text
+            course_dict['教师']         = course_tr[3].text
+            course_dict['学时']         = course_tr[4].text
+            course_dict['上课时间date'] = course_tr[5].text
+            course_dict['上课时间time'] = course_tr[5][0].tail
+            course_dict['教室']         = course_tr[6].text
+            course_dict['可预约']       = course_tr[9].text
+            course_dict['已预约']       = course_tr[10].text
 
-            operation = course_form.xpath('./tr/td[13]//text()')[1].strip()
-            #如果operation为空，要么可以预约，要么已经预约过了，需要进一步获得<input>的类型
-            input_submit = course_form.xpath('./tr/td[13]/input[@type="submit"]/@value')
-            if not operation:
-                operation = input_submit[0]
-            course_dict['operation'] = operation
+            try:
+                course_dict['课件']         = course_tr[11][0].get('href')
+            except:
+                course_dict['课件']         = ''
 
+            course_dict['_url']         = course_form.get('action')
+
+            try:
+                course_dict['operation'] = course_tr[12].xpath('./input[@type="submit"]/@value')[0]
+            except:
+                course_dict['operation'] = course_tr[12][0].tail.strip()
+            
             course_dict_list.append(course_dict)
         return course_dict_list
     
@@ -418,7 +420,7 @@ class Bot():
                 try:
                     td.text = course_dict[key]
                 except:
-                    td.text = str(course_dict[key])
+                    td.text = ''
         
         return etree.tostring(table, pretty_print=True, encoding="utf-8").decode("utf-8")
     
