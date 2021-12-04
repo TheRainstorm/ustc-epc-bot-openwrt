@@ -19,7 +19,7 @@ class Bot():
         "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
     }
 
-    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False):
+    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False, debug=False):
         self.ustc_id     = config["ustc_id"]
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
@@ -47,6 +47,7 @@ class Bot():
         })
 
         self.silent = silent    #是否静默模式（命令行不输出INFO信息）
+        self.debug = debug      #debug模式不进行网络请求，而是读取html文件内容作为http响应
 
         self.have_email = have_email                #表示是否设置了邮件（地址，授权码等），未设置时邮件相关代码不执行
         self.force_send_email = force_send_email    #自动模式有课可选时才会发邮件，该选项用于强制发送邮件
@@ -166,23 +167,29 @@ class Bot():
             "querytype": select  #all: 全部预约，new: 新预约
         }
         
-        retry_time = 3
-        while retry_time > 0:
-            resp = self.session.post(url=self.URL_BOOKED, data=data)
-            if resp.status_code != 200: 
-                self.print_log(1, "Get booked course failed")
-                retry_time -= 1
-            else:
-                break
+        if self.debug:
+            with open("booked.html", "r", encoding='gbk') as f:
+                resp_text = f.read()
         else:
-            self.print_log(1, "Get booked course failed %d times, exit"%(3-retry_time))
-            exit(1)
+            retry_time = 3
+            while retry_time > 0:
+                resp = self.session.post(url=self.URL_BOOKED, data=data)
+                if resp.status_code != 200: 
+                    self.print_log(1, "Get booked course failed")
+                    retry_time -= 1
+                else:
+                    break
+            else:
+                self.print_log(1, "Get booked course failed %d times, exit"%(3-retry_time))
+                exit(1)
+            resp_text = resp.text
         
-        # with open("booked.html", "w", encoding='gbk') as f:
-        #     f.write(resp.text)
-        course_dict_list = []
+            # with open("booked.html", "w", encoding='gbk') as f:
+            #     f.write(resp.text)
 
-        html = etree.HTML(resp.text)
+        html = etree.HTML(resp_text)
+
+        course_dict_list = []
         course_tr_list = html.xpath('//form/tr[@bgcolor="#ffe6ff"]')
         for course_tr in course_tr_list:
             course_dict = {}
@@ -207,9 +214,9 @@ class Bot():
             if course_dict['课程状态'] == '预约中':
                 new_booked_course_list.append(course_dict)
         
-        booked_hour = int(re.search(r'已预约的交流英语学时:(\d+)', resp.text).group(1))
-        finished_hour = int(re.search(r'已获得的交流英语学时:(\d+)', resp.text).group(1))
-        # missed_hour = int(re.search(r'预约未上的交流英语学时:(\d+)', resp.text).group(1))
+        booked_hour = int(re.search(r'已预约的交流英语学时:(\d+)', resp_text).group(1))
+        finished_hour = int(re.search(r'已获得的交流英语学时:(\d+)', resp_text).group(1))
+        # missed_hour = int(re.search(r'预约未上的交流英语学时:(\d+)', resp_text).group(1))
         new_booked_hour = booked_hour - finished_hour
 
         return booked_hour, new_booked_hour, new_booked_course_list, course_dict_list
@@ -217,29 +224,33 @@ class Bot():
     def get_released_course(self, select='topic'):
         '''获得可预约课程
         '''
-        retry_time = 3
-        while retry_time > 0:
-            resp = self.session.get(self.URL_BOOKABLE[select])
-            if (resp.status_code != 200): 
-                self.print_log(1, "Get released course failed")
-                retry_time -= 1
-            else:
-                break
+        if self.debug:
+            with open("bookable.html", "r", encoding='gbk') as f:
+                resp_text = f.read()
+                html = etree.HTML(resp_text)
         else:
-            self.print_log(1, "Get released course failed %d times, exit"%(3-retry_time))
-            exit(1) 
+            retry_time = 3
+            while retry_time > 0:
+                resp = self.session.get(self.URL_BOOKABLE[select])
+                if (resp.status_code != 200): 
+                    self.print_log(1, "Get released course failed")
+                    retry_time -= 1
+                else:
+                    break
+            else:
+                self.print_log(1, "Get released course failed %d times, exit"%(3-retry_time))
+                exit(1) 
+            html = etree.HTML(resp.text)
         
-        # with open("bookable.html", "w", encoding='gbk') as f:
-        #     f.write(resp.text)
-        
-        html = etree.HTML(resp.text)
+            # with open("bookable.html", "w", encoding='gbk') as f:
+            #     f.write(resp.text)
 
         course_dict_list = []
         course_form_list = html.xpath('//form[@action]')
         for course_form in course_form_list:
             course_tr = course_form[0]
             course_dict = {}
-            course_dict['预约单元']     = course_tr[0].text
+            course_dict['预约单元']     = course_tr[0][0].text
             course_dict['教学周']       = course_tr[1].text
             course_dict['星期']         = course_tr[2].text
             course_dict['教师']         = course_tr[3].text
@@ -311,6 +322,9 @@ class Bot():
     def submit_course(self, course_dict, cmd='submit'):
         '''提交课程
         '''
+        if self.debug:
+            return True
+        
         data = {
             "submit_type": "book_%s" % cmd  #book_submit/book_cancel
         }
@@ -384,8 +398,8 @@ class Bot():
                 course_dict['星期'],
                 course_dict['优先级'],
                 course_dict['operation'],
-                course_dict['已预约人数'],
-                course_dict['可预约人数']
+                course_dict['已预约'],
+                course_dict['可预约']
             ))
     
     def dump_course_list(self, file, course_dict_list):
