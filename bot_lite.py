@@ -19,7 +19,7 @@ class Bot():
         "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
     }
 
-    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False, debug=False):
+    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False, debug=False, exchange_course=True):
         self.ustc_id     = config["ustc_id"]
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
@@ -28,6 +28,8 @@ class Bot():
             self.no_offline_course = config["no_offline_course"]
         except:
             self.no_offline_course = True
+        
+        self.exchange_course = exchange_course
 
         if filter_week is None:    #如果没有指定星期，则默认为全部星期
             self.filter_week = [i for i in range(1,21)]
@@ -58,7 +60,7 @@ class Bot():
                     config['email_smtp_addr'],
                     config['email_auth_code']
                 )
-        
+        self.mail_msg = ""
         self.login()
 
     def run(self):
@@ -107,7 +109,8 @@ class Bot():
         #邮件通知
         if self.have_email and (try_count>0 or self.force_send_email):
             self.print_log(2, "Sending Email...")
-            msg = self.list2html(new_booked_course_list)
+            msg = self.mail_msg
+            msg += self.list2html(new_booked_course_list)
             msg += self.list2html(course_dict_list_sorted)
             self.email_sender.send("EPC Bookable Course", msg)
 
@@ -346,9 +349,12 @@ class Bot():
                     success = self.submit_course(course_dict, cmd='submit')
                     if success:
                         self.booked_score += int(course_dict['学时'])
-                        self.print_log(2, "Submit course success: %s" % course_dict['预约单元'])
+                        log = "Submit course success: %s" % course_dict['预约单元']
+                        self.print_log(2, log)
                     else:
-                        self.print_log(2, "Submit course failed: %s" % course_dict['预约单元'])
+                        log = "Submit course failed: %s" % course_dict['预约单元']
+                        self.print_log(2, log)
+                    self.mail_msg += log + '\n'
         
         if new_booked_course_list and (self.booked_score >= self.max_book_score):
             #找到可选课程里周数最小，优先级更高的课程。因为已经排序，故只需看第一个
@@ -367,21 +373,30 @@ class Bot():
 
             if min_week < max_week: #尝试退掉已选的课程，并选择周数小的课程
                 try_count += 1
-                self.print_log(2, "Found better course than booked course")
+                log = "Found better course than booked course"
+                self.print_log(2, log)
+                self.mail_msg += log + '\n'
 
-                course_dict = max_week_course
-                success = self.submit_course(course_dict, cmd='cancel')
-                if success:
-                    self.print_log(2, "Cancel course: %s success" %course_dict['预约单元'])
-                else:
-                    self.print_log(2, "Cancel course: %s failed" %course_dict['预约单元'])
+                if self.exchange_course:
+                    course_dict = max_week_course
+                    success = self.submit_course(course_dict, cmd='cancel')
+                    if success:
+                        log = "Cancel course success: %s" % course_dict['预约单元']
+                        self.print_log(2, log)
+                    else:
+                        log = "Cancel course failed: %s" % course_dict['预约单元']
+                        self.print_log(2, log)
+                    self.mail_msg += log + '\n'
 
-                course_dict = min_week_course
-                success = self.submit_course(course_dict, 'submit')
-                if success:
-                    self.print_log(2, "Submit course: %s success" %course_dict['预约单元'])
-                else:
-                    self.print_log(2, "Submit course: %s failed" %course_dict['预约单元'])
+                    course_dict = min_week_course
+                    success = self.submit_course(course_dict, cmd='submit')
+                    if success:
+                        log = "Submit course success: %s" % course_dict['预约单元']
+                        self.print_log(2, log)
+                    else:
+                        log = "Submit course failed: %s" % course_dict['预约单元']
+                        self.print_log(2, log)
+                    self.mail_msg += log + '\n'
         
         return try_count
 
