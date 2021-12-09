@@ -8,6 +8,7 @@
     "email_auth_code": "xxx",
 
     "no_offline_course": true,
+    "max_book_score": 8,
     
     "wday_perfer": {
         "周一": {

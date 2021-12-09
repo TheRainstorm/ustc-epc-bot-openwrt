@@ -19,7 +19,7 @@ class Bot():
         "pronunciation" : URL_ROOT + "m_practice.asp?second_id=2007",   #Pronunciation Practice
     }
 
-    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False, debug=False, exchange_course=True):
+    def __init__(self, config, filter_week=None, have_email=False, silent=False, force_send_email=False, debug=False, exchange_course=True, just_email=False):
         self.ustc_id     = config["ustc_id"]
         self.ustc_pwd    = config["ustc_pwd"]
         self.wday_perfer = config["wday_perfer"]
@@ -30,6 +30,7 @@ class Bot():
             self.no_offline_course = True
         
         self.exchange_course = exchange_course
+        self.just_email = just_email
 
         if filter_week is None:    #如果没有指定星期，则默认为全部星期
             self.filter_week = [i for i in range(1,21)]
@@ -37,7 +38,11 @@ class Bot():
             self.filter_week = filter_week
 
         self.booked_score = 0
-        self.max_book_score = 8
+
+        try:
+            self.max_book_score = config['max_book_score']
+        except:
+            self.max_book_score = 8
 
         self.new_booked_course_json_file = os.path.join(sys.path[0], 'course_to_cancel.json')          #保存已预约的课程
         self.sorted_released_course_json_file = os.path.join(sys.path[0], 'course_to_submit.json')     #保存可预约的课程
@@ -327,6 +332,8 @@ class Bot():
         '''
         if self.debug:
             return True
+        if self.just_email:
+            return False
         
         data = {
             "submit_type": "book_%s" % cmd  #book_submit/book_cancel
@@ -354,7 +361,7 @@ class Bot():
                     else:
                         log = "Submit course failed: %s" % course_dict['预约单元']
                         self.print_log(2, log)
-                    self.mail_msg += log + '\n'
+                    self.mail_msg += log + '<br>'
         
         if new_booked_course_list and (self.booked_score >= self.max_book_score):
             #找到可选课程里周数最小，优先级更高的课程。因为已经排序，故只需看第一个
@@ -375,7 +382,7 @@ class Bot():
                 try_count += 1
                 log = "Found better course than booked course"
                 self.print_log(2, log)
-                self.mail_msg += log + '\n'
+                self.mail_msg += log + '<br>'
 
                 if self.exchange_course:
                     course_dict = max_week_course
@@ -386,7 +393,7 @@ class Bot():
                     else:
                         log = "Cancel course failed: %s" % course_dict['预约单元']
                         self.print_log(2, log)
-                    self.mail_msg += log + '\n'
+                    self.mail_msg += log + '<br>'
 
                     course_dict = min_week_course
                     success = self.submit_course(course_dict, cmd='submit')
@@ -396,7 +403,7 @@ class Bot():
                     else:
                         log = "Submit course failed: %s" % course_dict['预约单元']
                         self.print_log(2, log)
-                    self.mail_msg += log + '\n'
+                    self.mail_msg += log + '<br>'
         
         return try_count
 
