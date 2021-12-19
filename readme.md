@@ -67,6 +67,15 @@ lxml
    2. `force_send_email`
    
        设置为true时，则每次运行都会发送邮件
+
+   3.  `exchange_course`
+    
+        设置为False时，发现更好课程时不会自动换课，只会邮件通知
+        
+   3.  `just_email`
+
+        设置为true时，不进行任何选课，退课操作，只会邮件通知。（恭喜上完这门课）
+        
    
 4. **运行**
 
